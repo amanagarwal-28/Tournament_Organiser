@@ -1205,7 +1205,8 @@
         <div id="tab-group" class="tab-panel">
             <div id="group-stage-content">
                 <div class="alert alert-info"><span class="alert-icon">&#x2139;&#xFE0F;</span> Head to the
-                    <strong>Players</strong> tab, register players, and click <strong>Divide into Groups</strong>.</div>
+                    <strong>Players</strong> tab, register players, and click <strong>Divide into Groups</strong>.
+                </div>
             </div>
         </div>
 
@@ -1527,17 +1528,47 @@
                 stats[m.p1].gw += (m.s1 || 0); stats[m.p1].gl += (m.s2 || 0);
                 stats[m.p2].gw += (m.s2 || 0); stats[m.p2].gl += (m.s1 || 0);
             });
-            const sorted = Object.entries(stats).sort((a, b) =>
-                b[1].pts - a[1].pts || (b[1].gw - b[1].gl) - (a[1].gw - a[1].gl)
-            );
-            let h = '<div class="standings-wrap"><div class="standings-lbl">&#x1F4CA; Standings</div>' +
+            // Build head-to-head lookup between every pair
+            const h2h = {};
+            S.groupMatches.filter(m => m.group === gi && m.winner).forEach(m => {
+                const key = [m.p1, m.p2].sort().join('|||');
+                if (!h2h[key]) h2h[key] = {};
+                h2h[key][m.winner] = (h2h[key][m.winner] || 0) + 1;
+            });
+            const getH2HPts = (a, b) => {
+                const key = [a, b].sort().join('|||');
+                const rec = h2h[key] || {};
+                return (rec[a] || 0) - (rec[b] || 0); // positive = a beat b more
+            };
+            const entries = Object.entries(stats);
+            const sorted = entries.sort((a, b) => {
+                // 1. Points
+                if (b[1].pts !== a[1].pts) return b[1].pts - a[1].pts;
+                // 2. Head-to-head (only meaningful between exactly these two)
+                const h2hDiff = getH2HPts(b[0], a[0]);
+                if (h2hDiff !== 0) return h2hDiff;
+                // 3. Game difference
+                const gdB = b[1].gw - b[1].gl, gdA = a[1].gw - a[1].gl;
+                if (gdB !== gdA) return gdB - gdA;
+                // 4. Games won
+                return b[1].gw - a[1].gw;
+            });
+            // Detect tied ranks (same pts, same GD, same GW)
+            const isTied = (a, b) => a[1].pts === b[1].pts &&
+                (a[1].gw - a[1].gl) === (b[1].gw - b[1].gl) &&
+                a[1].gw === b[1].gw && getH2HPts(a[0], b[0]) === 0;
+            let h = '<div class="standings-wrap"><div class="standings-lbl">&#x1F4CA; Standings' +
+                '<span style="font-size:10px;font-weight:400;color:var(--muted);margin-left:8px" title="Tiebreakers: 1) Head-to-Head  2) Game Diff  3) Games Won">Tiebreakers: H2H → GD → GW &#x2139;&#xFE0F;</span></div>' +
                 '<div class="tbl-wrap"><table>' +
                 '<thead><tr><th>Rank</th><th>Player</th><th>W</th><th>L</th><th>Pts</th><th>GD</th></tr></thead><tbody>';
             sorted.forEach(([p, s], i) => {
                 const adv = i < S.advanceCount;
+                const tiedWithNext = i < sorted.length - 1 && isTied(sorted[i], sorted[i + 1]);
+                const tiedWithPrev = i > 0 && isTied(sorted[i - 1], sorted[i]);
+                const tiedBadge = (tiedWithNext || tiedWithPrev) ? '<span style="margin-left:4px;font-size:9px;color:var(--gold);border:1px solid var(--gold);border-radius:3px;padding:1px 3px">TIE</span>' : '';
                 h += '<tr class="' + (adv ? 'adv-row ' : '') + 'rank-' + (i + 1) + '">' +
                     '<td style="font-weight:900">' + (i + 1) + '</td>' +
-                    '<td class="lb-name">' + esc(p) + (adv ? '<span class="adv-tag">ADV</span>' : '') + '</td>' +
+                    '<td class="lb-name">' + esc(p) + (adv ? '<span class="adv-tag">ADV</span>' : '') + tiedBadge + '</td>' +
                     '<td style="color:var(--green)">' + s.w + '</td>' +
                     '<td style="color:var(--red)">' + s.l + '</td>' +
                     '<td class="lb-pts">' + s.pts + '</td>' +
